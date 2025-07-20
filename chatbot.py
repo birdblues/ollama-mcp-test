@@ -9,12 +9,13 @@
 
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.widgets import Input, Footer, RichLog
+from textual.widgets import Input, Footer, RichLog, Static
 from textual.events import Key, Paste
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.markdown import Markdown as RichMarkdown
+from rich.live import Live
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import requests
@@ -36,6 +37,18 @@ class LangChainOllamaChat(App):
         scrollbar-size: 0 0;
     }
     
+    #streaming-response {
+        dock: bottom;
+        height: auto;
+        margin: 0 1;
+        padding: 1;
+        border: round yellow;
+    }
+    
+    #streaming-response.hidden {
+        display: none;
+    }
+    
     #chat-input {
         dock: bottom;
         margin: 0;
@@ -51,10 +64,12 @@ class LangChainOllamaChat(App):
         self.messages = []  # LangChain 메시지 히스토리
         self.available_models = []
         self.console = Console()  # Rich 콘솔 인스턴스
+        self.current_ai_widget = None  # 현재 AI 응답 위젯 추적
         
     def compose(self) -> ComposeResult:
         """UI 구성 - RichLog와 입력창"""
         yield RichLog(id="chat-log", highlight=True, markup=True)
+        yield Static(id="streaming-response", classes="hidden")  # 스트리밍 응답용 위젯
         yield Input(value="> ", placeholder="메시지를 입력하세요... (종료하려면 'quit' 입력)", id="chat-input")
         # yield Footer()
 
@@ -108,6 +123,7 @@ class LangChainOllamaChat(App):
                 base_url=self.ollama_url,
                 temperature=0.7,
                 top_p=0.9,
+                streaming=True,  # 스트리밍 활성화
                 # num_predict=500,  # max_tokens 대신 사용
             )
             # 기본 시스템 메시지 설정
@@ -160,7 +176,42 @@ class LangChainOllamaChat(App):
             title="AI",
             border_style="green"
         )
-        chat_log.write(RichMarkdown(message))
+        chat_log.write(panel)
+    
+    def update_ai_response(self, partial_message: str):
+        """실시간으로 AI 응답을 업데이트"""
+        streaming_widget = self.query_one("#streaming-response")
+        
+        # 스트리밍 상태가 아니라면 위젯을 표시하고 시작
+        if not hasattr(self, '_streaming_active') or not self._streaming_active:
+            self._streaming_active = True
+            streaming_widget.remove_class("hidden")
+        
+        # 스트리밍 위젯 내용 업데이트
+        panel = Panel(
+            RichMarkdown(partial_message + " ▌"),
+            title="AI (작성 중...)",
+            border_style="yellow"
+        )
+        streaming_widget.update(panel)
+    
+    def finalize_ai_response(self, final_message: str):
+        """스트리밍 완료 후 최종 AI 응답 출력"""
+        chat_log = self.query_one("#chat-log")
+        streaming_widget = self.query_one("#streaming-response")
+        
+        # 최종 응답을 채팅 로그에 추가
+        panel = Panel(
+            RichMarkdown(final_message),
+            title="AI",
+            border_style="green"
+        )
+        chat_log.write(panel)
+        
+        # 스트리밍 위젯 숨기기 및 상태 종료
+        streaming_widget.add_class("hidden")
+        streaming_widget.update("")  # 내용 초기화
+        self._streaming_active = False
 
     def on_key(self, event: Key) -> None:
         """키 입력 처리"""
@@ -211,7 +262,7 @@ class LangChainOllamaChat(App):
         except:
             return ""
 
-    def on_paste(self, event: Paste) -> None:
+    def on_paste(self, _event: Paste) -> None:
         """붙여넣기 이벤트 처리"""
         # 포커스된 위젯이 입력창인지 확인
         focused = self.focused
@@ -327,19 +378,22 @@ class LangChainOllamaChat(App):
             
             response_content = ""
             
-            # "AI가 생각 중..." 메시지 출력
-            chat_log = self.query_one("#chat-log")
-            self.call_from_thread(chat_log.write, "🤖 AI가 생각 중...")
+            # 스트리밍 상태 초기화
+            self._streaming_active = False
             
-            # LangChain 일반 호출 사용 (스트리밍 비활성화)
-            response = self.chat_model.invoke(self.messages)
-            response_content = response.content if hasattr(response, 'content') else str(response)
+            # LangChain 스트리밍 호출 사용
+            for chunk in self.chat_model.stream(self.messages):
+                if hasattr(chunk, 'content') and chunk.content:
+                    response_content += chunk.content
+                    # 실시간으로 AI 응답 업데이트
+                    self.call_from_thread(self.update_ai_response, response_content)
             
-            # 응답을 메시지 히스토리에 추가
+            # 스트리밍 완료 후 최종 메시지 출력
             if response_content:
                 self.messages.append(AIMessage(content=response_content))
-                # 완성된 AI 응답 출력
-                self.call_from_thread(self.print_ai_message, response_content)
+                # 스트리밍 완료 표시
+                self._streaming_active = False
+                self.call_from_thread(self.finalize_ai_response, response_content)
             
         except Exception as e:
             error_msg = f"❌ 오류가 발생했습니다: {str(e)}\n\n모델이 다운로드되어 있는지 확인해주세요."
