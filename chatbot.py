@@ -174,7 +174,7 @@ class LangChainOllamaChat(App):
         panel = Panel(
             RichMarkdown(message),
             title="AI",
-            border_style="green"
+            # border_style="green"
         )
         chat_log.write(panel)
     
@@ -188,12 +188,12 @@ class LangChainOllamaChat(App):
             streaming_widget.remove_class("hidden")
         
         # 스트리밍 위젯 내용 업데이트
-        panel = Panel(
-            RichMarkdown(partial_message + " ▌"),
-            title="AI (작성 중...)",
-            border_style="yellow"
-        )
-        streaming_widget.update(panel)
+        # panel = Panel(
+        #     RichMarkdown(partial_message + " ▌"),
+        #     title="AI (작성 중...)",
+        #     border_style="yellow"
+        # )
+        streaming_widget.update(RichMarkdown(partial_message + " ▌"))
     
     def finalize_ai_response(self, final_message: str):
         """스트리밍 완료 후 최종 AI 응답 출력"""
@@ -201,12 +201,12 @@ class LangChainOllamaChat(App):
         streaming_widget = self.query_one("#streaming-response")
         
         # 최종 응답을 채팅 로그에 추가
-        panel = Panel(
-            RichMarkdown(final_message),
-            title="AI",
-            border_style="green"
-        )
-        chat_log.write(panel)
+        # panel = Panel(
+        #     RichMarkdown(final_message),
+        #     title="AI",
+        #     # border_style="green"
+        # )
+        chat_log.write(RichMarkdown(final_message))
         
         # 스트리밍 위젯 숨기기 및 상태 종료
         streaming_widget.add_class("hidden")

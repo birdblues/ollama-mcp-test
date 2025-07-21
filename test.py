@@ -5,11 +5,6 @@ from langchain_ollama import ChatOllama
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 
-
-async def simple_test():
-    """간단한 테스트"""
-    model = ChatOllama(model="qwen3:32b")
-=======
 async def simple_test():
     """간단한 테스트"""
     model = ChatOllama(model="qwen3:30b-32k")
